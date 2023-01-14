@@ -14,46 +14,32 @@ trait Challenge {
     /// Vérifie qu'une sortie est valide pour le challenge
     fn verify(&self, answer: &Self::Output) -> bool;
 }
-
-struct ServerConfig {
-    server_address: String,
-    name: &'static str,
+#[derive(Debug)]
+pub struct ServerConfig {
+    pub server_address: String,
+    pub name: String,
+    pub port: Option<u16>,
 }
 
 impl ServerConfig {
-    fn new(server_address: String, name: &'static str) -> Self {
+    pub fn new(server_address: String, name: String, server_port: Option<u16>) -> Self {
         ServerConfig {
             server_address,
             name,
+            port: server_port,
         }
     }
-
-
-    // fn check_server_address(server_address: String) -> Result<&'static str, _> {
-    //     if (server_address.len() <= 0) {
-    //         Err(Error::new(ErrorKind::InvalidInput, "server_address can't be empty"))
-    //     }
-    //     if (server_address.len() > 255) {
-    //         Err(Error::new(ErrorKind::InvalidInput, "server_address can't be more than 255 characters"))
-    //     }
-    //     if (!server_address.starts_with("http") || !server_address.starts_with("https")) {
-    //         Err(Error::new(ErrorKind::InvalidInput, "server_address must start with http or https"))
-    //     }
-    //     Ok(("server address valid"))
-    // }
-}
-
-struct Welcome{
-
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_should_failed_when_address_is_empty() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    pub fn full_server_address(&self) -> String {
+        return match &self.port {
+            Some(port) => format!("{}:{}", &self.server_address, port),
+            None => {
+                let server_address_splitted: Vec<&str> = self.server_address.split(":").collect();
+                if server_address_splitted.len() > 1 {
+                    self.server_address.clone()
+                } else {
+                    format!("{}:{}", self.server_address, "7878")
+                }
+            }
+        };
     }
 }
