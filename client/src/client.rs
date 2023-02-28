@@ -2,15 +2,15 @@ pub use std::io::Read;
 use std::net::TcpStream;
 
 use rand::Rng;
-
+use shared::challenge::Challenge as _;
+use shared::challenge::HashCash;
 use shared::messages::ChallengeOptions::MD5HashCash;
 use shared::messages::Message::{Challenge, ChallengeResult, Subscribe};
 use shared::messages::{
-    ChallengeAnswer, ChallengeOptions, ChallengeResultInput, Message, PublicPlayer, SubscribeInput,
-    SubscribeResult,
+    ChallengeAnswer, ChallengeResultInput, Message, PublicPlayer, SubscribeInput, SubscribeResult,
 };
 
-use crate::utils::{md5hash_cash, receive, send};
+use crate::utils::{receive, send};
 
 pub fn handle_response_from_server(
     stream: &TcpStream,
@@ -53,10 +53,9 @@ pub fn handle_response_from_server(
                 }
                 Challenge(challenge) => {
                     if let MD5HashCash(hash_cash) = challenge {
-                        let complexity = hash_cash.complexity;
-                        let message = hash_cash.message;
+                        let md5_hash_cash = HashCash::new(hash_cash);
 
-                        let md5answer = md5hash_cash(complexity, message);
+                        let md5answer = md5_hash_cash.solve();
 
                         match players.get(index_player) {
                             Some(player) => {
