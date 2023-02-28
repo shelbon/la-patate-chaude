@@ -1,75 +1,95 @@
-use std::{io, str};
-use std::io::{Read, Write};
+pub use std::io::Read;
 use std::net::TcpStream;
-use serde::{Serialize, Deserialize};
-use serde_json::Error;
-use shared::messages::Message;
+
+use rand::Rng;
+
+use shared::messages::ChallengeOptions::MD5HashCash;
 use shared::messages::Message::{Challenge, ChallengeResult, Subscribe};
-use shared::messages::messages::{ChallengeAnswer, ChallengeOptions, ChallengeResultInput, MD5HashCashOutput, RecoverSecretInput, RecoverSecretOutput, SubscribeInput};
-use crate::utils::utils::{receive,send};
-fn main() {
-    let stream = TcpStream::connect("127.0.0.1:7878");
-    match stream {
-        Ok(mut stream) => {
-            let hello = Message::Hello;
-            send(&mut stream, hello);
+use shared::messages::{
+    ChallengeAnswer, ChallengeOptions, ChallengeResultInput, Message, PublicPlayer, SubscribeInput,
+    SubscribeResult,
+};
 
-            let array = [0; 4];
+use crate::utils::{md5hash_cash, receive, send};
 
-            loop {
-                let challenge = receive(&mut stream, array);
+pub fn handle_response_from_server(
+    stream: &TcpStream,
+    mut players: Vec<PublicPlayer>,
+    connexion_name: &String,
+) {
+    let mut rng = rand::thread_rng();
+    loop {
+        let buf_len = [0u8; 4]; // pour lire les 4 octets du u32
+        let received_message = receive(stream, buf_len);
+        let index_player = if players.is_empty() {
+            0
+        } else {
+            rng.gen_range(0..players.len())
+        };
 
-                match challenge {
-                    Ok(v) => {
-                        if let Message::Welcome(..) = v {
-                            let subscribe = Message::Subscribe(SubscribeInput { name: "noura_patrick".parse().unwrap() });
-                            send(&mut stream, subscribe);
-                        }
-                        if let Message::PublicLeaderBoard(..) = v {
-                            println!("public")
-                        }
-                        if let Message::EndOfGame(..) = v {
-                            break;
-                        }
-                        if let Message::Challenge(challenge) = v {
-                            println!("challenge a effectué : {:?}", challenge);
+        match received_message {
+            Ok(successfulnesses_message) => match successfulnesses_message {
+                Message::Welcome(_) => {
+                    let subscribe = Subscribe(SubscribeInput {
+                        name: connexion_name.to_string(),
+                    });
+                    send(stream, subscribe);
+                }
+                Message::SubscribeResult(subscribe) => match subscribe {
+                    SubscribeResult::Ok => {}
+                    SubscribeResult::Err(error) => {
+                        panic!("{:?}", error);
+                    }
+                },
+                Message::PublicLeaderBoard(public_leader_board) => {
+                    players.append(
+                        &mut public_leader_board
+                            .0
+                            .clone()
+                            .into_iter()
+                            .filter(|p| p.name != *connexion_name)
+                            .collect::<Vec<PublicPlayer>>(),
+                    );
+                }
+                Challenge(challenge) => {
+                    if let MD5HashCash(hash_cash) = challenge {
+                        let complexity = hash_cash.complexity;
+                        let message = hash_cash.message;
 
-                            loop {
-                                match challenge.clone(){
-                                    ChallengeOptions::RecoverSecret(recover) => {
-                                        let recover_secret_answer =String::new(); //recover_secret(recover);
+                        let md5answer = md5hash_cash(complexity, message);
 
-                                        let challenge_result = Message::ChallengeResult(ChallengeResultInput{answer:ChallengeAnswer::RecoverySecret(RecoverSecretOutput{secret_sentence:recover_secret_answer}),next_target:"patrick_noura".parse().unwrap()});
-                                        send(&mut stream, challenge_result);
-
-                                    },
-
-                                    ChallengeOptions::MD5HashCash(hashcash) => {
-                                        let complexity = hashcash.complexity;
-                                        let message = hashcash.message;
-
-                                        let md5answer =""; //md5hash_cash(complexity, message);
-
-                                        //println!("reponse du challenge {:?}", md5answer);
-
-                                        let challenge_result = Message::ChallengeResult(ChallengeResultInput { answer: ChallengeAnswer::MD5HashCash(MD5HashCashOutput{ seed:787877,hashcode:"".to_string() }), next_target: "patrick_noura".parse().unwrap() });
-                                        send(&mut stream, challenge_result);
-
-                                        break;
-                                    }
-
-                                    _ => {}
-                                }
+                        match players.get(index_player) {
+                            Some(player) => {
+                                let challenge_result = ChallengeResult(ChallengeResultInput {
+                                    answer: ChallengeAnswer::MD5HashCash(md5answer),
+                                    next_target: player.name.clone(),
+                                });
+                                println!("challenge_result:{:?}", challenge_result);
+                                send(stream, challenge_result);
+                            }
+                            None => {
+                                println!("some error happened");
                             }
                         }
                     }
-                    _ => {
-                        println!("{:?}", challenge);
-                        break;
-                    }
                 }
+                Message::ChallengeTimeout(challenge_timeout) => {
+                    println!("{}", challenge_timeout.message);
+                    break;
+                }
+                Message::RoundSummary(round_summary) => {
+                    println!("{:?}", round_summary.chain);
+                }
+                Message::EndOfGame(end_of_game) => {
+                    println!("{:?}", end_of_game);
+                }
+                _ => {
+                    panic!("Invalid message {:?}", successfulnesses_message);
+                }
+            },
+            Err(error) => {
+                panic!("{:?}", error);
             }
         }
-        Err(err) => panic!("Cannot connect: {}", err)
     }
 }

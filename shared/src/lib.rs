@@ -33,8 +33,8 @@ impl ServerConfig {
         return match &self.port {
             Some(port) => format!("{}:{}", &self.server_address, port),
             None => {
-                let server_address_splitted: Vec<&str> = self.server_address.split(":").collect();
-                if server_address_splitted.len() > 1 {
+                let server_address_split: Vec<&str> = self.server_address.split(':').collect();
+                if server_address_split.len() > 1 {
                     self.server_address.clone()
                 } else {
                     format!("{}:{}", self.server_address, "7878")

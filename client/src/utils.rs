@@ -1,54 +1,55 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::{str};
-use serde::{Serialize, Deserialize};
+use std::str;
+
 use md5::Digest;
 use serde_json::Error;
-use shared::messages::Message;
-use shared::messages::messages::{MD5HashCashOutput, RecoverSecretInput, RecoverSecretOutput};
 
+use shared::messages::{MD5HashCashOutput, Message};
 
-pub fn receive(stream: &mut TcpStream, mut array: [u8; 4]) -> Result<Message, Error> {
-    stream.read( &mut array).unwrap();
+pub fn receive(mut stream: &TcpStream, mut array: [u8; 4]) -> Result<Message, Error> {
+    let _ = stream.read_exact(array.as_mut());
 
     let size_message: u32 = u32::from_be_bytes(array);
     let size_message = size_message as usize;
 
     let mut vector = vec![0; size_message];
 
-    stream.read(&mut vector).unwrap();
+    let _ = stream.read_exact(&mut vector);
 
-    let message_received = std::str::from_utf8(&*vector).unwrap();
+    let message_received = str::from_utf8(&vector).unwrap();
 
     let welcome_serialized = serde_json::to_string(&message_received).unwrap();
-    let a = welcome_serialized.replace("\\", "");
+    let a = welcome_serialized.replace('\\', "");
 
     println!("{}", message_received);
 
     let first_last_off: &str = &a[1..a.len() - 1];
-    let message: Result<Message, serde_json::Error> = serde_json::from_str(&first_last_off);
+    let message: Result<Message, Error> = serde_json::from_str(first_last_off);
 
-    return message
+    message
 }
 
-pub fn send(stream: &mut TcpStream, message_to_send: Message) {
-    let message_to_serialized = serde_json::to_string(&message_to_send);
-    let message_to_serialized = message_to_serialized.unwrap();
-    let serialized_message_length_to_u32 = (message_to_serialized.len()) as u32;
-
-    stream.write_all(&serialized_message_length_to_u32.to_be_bytes()).unwrap();
-
-    stream.write_all(&message_to_serialized.as_bytes()).expect("Broken Pipe");
+pub fn send(mut stream: &TcpStream, message_to_send: Message) {
+    let serialized_message =
+        serde_json::to_string(&message_to_send).expect("failed to serialize message");
+    let len = serialized_message.len() as u32;
+    // on écrit le préfixe (taille du prochain message)
+    if let Err(_) = stream.write_all(&len.to_be_bytes()) {
+        println!("Failed to send size of message")
+    }
+    println!("{:?}", serialized_message);
+    if let Err(_e) = stream.write_all(serialized_message.as_bytes()) {
+        println!("Failed to send message: {:?} ", serialized_message)
+    }
 }
 
-pub fn md5hash_cash(complexity: u32, message: String) ->  MD5HashCashOutput {
-
+pub fn md5hash_cash(complexity: u32, message: String) -> MD5HashCashOutput {
     let mut finish = false;
     let mut seed: u64 = 0;
     let mut hash_code = "".to_string();
 
-    while finish == false {
-
+    while !finish {
         let seed_in_hex = convert_to_hex(seed as i32);
         let seed_concat = concat_string(seed_in_hex.to_string(), &message);
         let digest = md5::compute(seed_concat);
@@ -62,15 +63,11 @@ pub fn md5hash_cash(complexity: u32, message: String) ->  MD5HashCashOutput {
         seed += 1;
     }
 
-    return MD5HashCashOutput{ seed, hashcode: hash_code.parse().unwrap() };
+    MD5HashCashOutput {
+        seed,
+        hashcode: hash_code.parse().unwrap(),
+    }
 }
-
-pub fn recover_secret(input: RecoverSecretInput) -> RecoverSecretOutput {
-    return RecoverSecretOutput {
-        secret_sentence: String::from(""),
-    };
-}
-
 fn concat_string(seed: String, message: &str) -> String {
     format!("{}{}\n", seed, message)
 }
@@ -88,22 +85,16 @@ fn format_to_binary(hashcode: &String) -> String {
 }
 
 fn check_seed(binary_hash: String, complexity: u32) -> bool {
-    let mut index = 0;
-
-    for character in binary_hash.chars() {
-
-        if character == '1' && index < complexity {
+    for (index, character) in binary_hash.chars().enumerate() {
+        if character == '1' && index < complexity as usize {
             return false;
-        } else if index >= complexity {
+        } else if index >= complexity as usize {
             return true;
         }
-
-        index += 1;
     }
 
-    return false;
+    false
 }
-
 
 fn to_binary(character: char) -> String {
     let binary = match character {
@@ -126,29 +117,32 @@ fn to_binary(character: char) -> String {
         _ => "",
     };
 
-    return String::from(binary);
+    String::from(binary)
 }
-
 
 #[cfg(test)]
 mod tests {
-    use shared::messages::Message;
-    use shared::messages::messages::MD5HashCashOutput;
-use crate::utils::utils::md5hash_cash;
+    use shared::messages::{MD5HashCashOutput, Message};
+
+    use crate::utils::md5hash_cash;
+
     fn test_md5() {
-        let hello= String::from("Hello");
-        let md5input =md5hash_cash(9, hello);
+        let hello = String::from("Hello");
+        let md5input = md5hash_cash(9, hello);
 
-        let md5output = MD5HashCashOutput { seed: 822, hashcode: String::from("007337B087CEFCC4BCB9CAA5B73E70BF") };
+        let md5output = MD5HashCashOutput {
+            seed: 822,
+            hashcode: String::from("007337B087CEFCC4BCB9CAA5B73E70BF"),
+        };
 
-        assert_eq!(md5input,md5output);
+        assert_eq!(md5input, md5output);
     }
 
     #[test]
     fn test_if_structure_welcome_is_good() {
-        let welcome =Message::Welcome(shared::messages::messages::WelcomeInput {version:1});
+        let welcome = Message::Welcome(shared::messages::WelcomeInput { version: 1 });
 
-        let welcome_message = Message::Welcome(shared::messages::messages::WelcomeInput {version:{1}});
+        let welcome_message = Message::Welcome(shared::messages::WelcomeInput { version: { 1 } });
 
         let check = equals_struct(welcome_message);
 
@@ -158,7 +152,7 @@ use crate::utils::utils::md5hash_cash;
     }
 
     fn equals_struct(structure: Message) -> &'static str {
-        let mut message="";
+        let mut message = "";
 
         match structure {
             Message::Hello => message = "Hello",
@@ -173,6 +167,6 @@ use crate::utils::utils::md5hash_cash;
             _ => {}
         }
 
-        return message
+        message
     }
 }
